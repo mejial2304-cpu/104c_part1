@@ -1,0 +1,271 @@
+---
+title: "104c_final"
+format: html
+editor: visual
+---
+
+## 
+
+```{r}
+library(ggplot2)
+library(kableExtra)
+
+fA     <- function(t, y)  y - t^2 + 1
+fA_dt  <- function(t, y) -2*t
+fA_dy  <- function(t, y)  1
+exactA <- function(t)    (t + 1)^2 - 0.5 * exp(t)
+
+fB     <- function(t, y)  2 * y
+fB_dt  <- function(t, y)  0
+fB_dy  <- function(t, y)  2
+exactB <- function(t)     exp(2 * t)
+
+fC     <- function(t, y) -y + cos(t)
+fC_dt  <- function(t, y) -sin(t)
+fC_dy  <- function(t, y) -1
+exactC <- function(t)    (cos(t) + sin(t)) / 2
+
+
+euler <- function(f, t0, y0, tf, h) {
+  ts <- seq(t0, tf, by = h)
+  ys <- numeric(length(ts)); ys[1] <- y0
+  for (i in seq_along(ts[-1]))
+    ys[i+1] <- ys[i] + h * f(ts[i], ys[i])
+  list(t = ts, y = ys)
+}
+
+taylor2 <- function(f, ft, fy, t0, y0, tf, h) {
+  ts <- seq(t0, tf, by = h)
+  ys <- numeric(length(ts)); ys[1] <- y0
+  for (i in seq_along(ts[-1])) {
+    T2 <- f(ts[i], ys[i]) + h/2*(ft(ts[i], ys[i]) + fy(ts[i], ys[i])*f(ts[i], ys[i]))
+    ys[i+1] <- ys[i] + h * T2
+  }
+  list(t = ts, y = ys)
+}
+
+midpoint <- function(f, t0, y0, tf, h) {
+  ts <- seq(t0, tf, by = h)
+  ys <- numeric(length(ts)); ys[1] <- y0
+  for (i in seq_along(ts[-1])) {
+    k1 <- f(ts[i], ys[i])
+    k2 <- f(ts[i] + h/2, ys[i] + h/2*k1)
+    ys[i+1] <- ys[i] + h * k2
+  }
+  list(t = ts, y = ys)
+}
+
+heun <- function(f, t0, y0, tf, h) {
+  ts <- seq(t0, tf, by = h)
+  ys <- numeric(length(ts)); ys[1] <- y0
+  for (i in seq_along(ts[-1])) {
+    k1 <- f(ts[i], ys[i])
+    k2 <- f(ts[i] + h, ys[i] + h*k1)
+    ys[i+1] <- ys[i] + h/2*(k1 + k2)
+  }
+  list(t = ts, y = ys)
+}
+
+rk4 <- function(f, t0, y0, tf, h) {
+  ts <- seq(t0, tf, by = h)
+  ys <- numeric(length(ts)); ys[1] <- y0
+  for (i in seq_along(ts[-1])) {
+    k1 <- f(ts[i],       ys[i])
+    k2 <- f(ts[i] + h/2, ys[i] + h/2*k1)
+    k3 <- f(ts[i] + h/2, ys[i] + h/2*k2)
+    k4 <- f(ts[i] + h,   ys[i] + h*k3)
+    ys[i+1] <- ys[i] + h/6*(k1 + 2*k2 + 2*k3 + k4)
+  }
+  list(t = ts, y = ys)
+}
+
+adams_bashforth <- function(f, t0, y0, tf, h) {
+  startup <- rk4(f, t0, y0, t0 + 3*h, h)
+  ts <- startup$t; ys <- startup$y
+  fs <- sapply(seq_along(ts), function(i) f(ts[i], ys[i]))
+  t_cur <- ts[length(ts)]
+  while (t_cur < tf - 1e-12) {
+    n  <- length(ys)
+    yn <- ys[n] + h/24*(55*fs[n] - 59*fs[n-1] + 37*fs[n-2] - 9*fs[n-3])
+    t_cur <- t_cur + h
+    ts <- c(ts, t_cur); ys <- c(ys, yn); fs <- c(fs, f(t_cur, yn))
+  }
+  list(t = ts, y = ys)
+}
+
+adams_moulton <- function(f, t0, y0, tf, h) {
+  startup <- rk4(f, t0, y0, t0 + 3*h, h)
+  ts <- startup$t; ys <- startup$y
+  fs <- sapply(seq_along(ts), function(i) f(ts[i], ys[i]))
+  t_cur <- ts[length(ts)]
+  while (t_cur < tf - 1e-12) {
+    n  <- length(ys)
+    yp <- ys[n] + h/24*(55*fs[n] - 59*fs[n-1] + 37*fs[n-2] - 9*fs[n-3])
+    t_cur <- t_cur + h
+    fp <- f(t_cur, yp)
+    yc <- ys[n] + h/24*(9*fp + 19*fs[n] - 5*fs[n-1] + fs[n-2])
+    ts <- c(ts, t_cur); ys <- c(ys, yc); fs <- c(fs, f(t_cur, yc))
+  }
+  list(t = ts, y = ys)
+}
+
+pred_corr <- function(f, t0, y0, tf, h) {
+  startup <- rk4(f, t0, y0, t0 + 2*h, h)
+  ts <- startup$t; ys <- startup$y
+  fs <- sapply(seq_along(ts), function(i) f(ts[i], ys[i]))
+  t_cur <- ts[length(ts)]
+  while (t_cur < tf - 1e-12) {
+    n  <- length(ys)
+    yp <- ys[n] + h/12*(23*fs[n] - 16*fs[n-1] + 5*fs[n-2])
+    t_cur <- t_cur + h
+    fp <- f(t_cur, yp)
+    yc <- ys[n] + h/12*(5*fp + 8*fs[n] - fs[n-1])
+    ts <- c(ts, t_cur); ys <- c(ys, yc); fs <- c(fs, f(t_cur, yc))
+  }
+  list(t = ts, y = ys)
+}
+
+run_all <- function(f, ft, fy, exact, t0, y0, tf, h) {
+  list(
+    Euler             = euler(f, t0, y0, tf, h),
+    Taylor2           = taylor2(f, ft, fy, t0, y0, tf, h),
+    Midpoint          = midpoint(f, t0, y0, tf, h),
+    "Heun's"          = heun(f, t0, y0, tf, h),
+    RK4               = rk4(f, t0, y0, tf, h),
+    "Adams-Bashforth" = adams_bashforth(f, t0, y0, tf, h),
+    "Adams-Moulton"   = adams_moulton(f, t0, y0, tf, h),
+    "Pred-Corrector"  = pred_corr(f, t0, y0, tf, h)
+  )
+}
+
+
+METHOD_COLORS <- c(
+  "Euler"           = "#1B9E77",
+  "Taylor2"         = "#D95F02",
+  "Midpoint"        = "#7570B3",
+  "Heun's"          = "#E7298A",
+  "RK4"             = "#66A61E",
+  "Adams-Bashforth" = "#E6AB02",
+  "Adams-Moulton"   = "#A6761D",
+  "Pred-Corrector"  = "#666666"
+)
+
+
+plot_solutions <- function(res, exact, tf, title, h) {
+  t_fine   <- seq(min(res[[1]]$t), tf, length.out = 500)
+  df_exact <- data.frame(t = t_fine, y = exact(t_fine), Method = "Exact")
+  df_num   <- do.call(rbind, lapply(names(res), function(nm)
+    data.frame(t = res[[nm]]$t, y = res[[nm]]$y, Method = nm)))
+  df <- rbind(df_exact, df_num)
+  df$Method <- factor(df$Method, levels = c("Exact", names(res)))
+  cols <- c("Exact" = "black", METHOD_COLORS[names(res)])
+  ltys <- setNames(
+    c("solid", "longdash", "dotted", "twodash", "dashed",
+      "dotdash", "longdash", "dotted", "twodash"),
+    c("Exact", names(res))
+  )
+  ggplot(df, aes(x = t, y = y, color = Method, linetype = Method)) +
+    geom_line(linewidth = 0.7) +
+    scale_color_manual(values = cols) +
+    scale_linetype_manual(values = ltys) +
+    labs(title = paste0(title, "  (h = ", h, ")"), x = "t", y = "y") +
+    theme_bw(base_size = 10) +
+    guides(color = guide_legend(ncol = 1))
+}
+
+plot_errors <- function(res, exact, title, h) {
+  df <- do.call(rbind, lapply(names(res), function(nm) {
+    ts <- res[[nm]]$t
+    data.frame(t = ts, error = abs(exact(ts) - res[[nm]]$y), Method = nm)
+  }))
+  df$Method <- factor(df$Method, levels = names(res))
+  ggplot(df, aes(x = t, y = error + 1e-16, color = Method)) +
+    geom_line(linewidth = 0.7) +
+    scale_y_log10() +
+    scale_color_manual(values = METHOD_COLORS[names(res)]) +
+    labs(title = paste0(title, "  (h = ", h, ")"),
+         x = "t", y = "|Error| (log scale)") +
+    theme_bw(base_size = 10)
+}
+
+
+error_df <- function(res, exact, step = 2) {
+  ts  <- res$Euler$t
+  idx <- seq(1, length(ts), by = step)
+  df  <- data.frame(t = round(ts[idx], 3), Exact = round(exact(ts[idx]), 6))
+  for (nm in names(res))
+    df[[nm]] <- formatC(abs(exact(ts[idx]) - res[[nm]]$y[idx]),
+                        format = "e", digits = 2)
+  df
+}
+
+max_error_df <- function(res_list, exact, h_vals) {
+  nms <- names(res_list[[1]])
+  rows <- lapply(nms, function(nm) {
+    errs <- sapply(res_list, function(res) max(abs(exact(res[[nm]]$t) - res[[nm]]$y)))
+    c(Method = nm, setNames(formatC(errs, format = "e", digits = 3),
+                            paste0("h = ", h_vals)))
+  })
+  as.data.frame(do.call(rbind, rows), stringsAsFactors = FALSE)
+}
+
+tbl <- function(df, cap) {
+  df |>
+    kable(format = "html", caption = cap) |>
+    kable_styling(bootstrap_options = c("striped", "hover", "bordered"),
+                  full_width = FALSE, font_size = 13) |>
+    row_spec(0, bold = TRUE, color = "white", background = "#2C3E50")
+}
+
+
+```
+
+A
+
+```{r}
+resA02  <- run_all(fA, fA_dt, fA_dy, exactA, 0, 0.5, 2, 0.20)
+resA01  <- run_all(fA, fA_dt, fA_dy, exactA, 0, 0.5, 2, 0.10)
+resA005 <- run_all(fA, fA_dt, fA_dy, exactA, 0, 0.5, 2, 0.05)
+
+plot_solutions(resA01, exactA, 2, "Problem A: Solutions", 0.1)
+plot_errors(resA01, exactA, "Problem A: Absolute Errors", 0.1)
+tbl(error_df(resA02, exactA, step = 1), "Problem A: Absolute Errors (h = 0.2)")
+tbl(error_df(resA01, exactA, step = 1), "Problem A: Absolute Errors (h = 0.1)")
+tbl(error_df(resA005, exactA, step = 2), "Problem A: Absolute Errors (h = 0.05)")
+tbl(max_error_df(list(resA02, resA01, resA005), exactA, c(0.2, 0.1, 0.05)),
+    "Problem A: Maximum Global Error Summary")
+
+```
+
+B
+
+```{r}
+resB02  <- run_all(fB, fB_dt, fB_dy, exactB, 0, 1, 2, 0.20)
+resB01  <- run_all(fB, fB_dt, fB_dy, exactB, 0, 1, 2, 0.10)
+resB005 <- run_all(fB, fB_dt, fB_dy, exactB, 0, 1, 2, 0.05)
+
+plot_solutions(resB01, exactB, 2, "Problem B: Solutions", 0.1)
+plot_errors(resB01, exactB, "Problem B: Absolute Errors", 0.1)
+tbl(error_df(resB02, exactB, step = 1), "Problem B: Absolute Errors (h = 0.2)")
+tbl(error_df(resB01, exactB, step = 1), "Problem B: Absolute Errors (h = 0.1)")
+tbl(error_df(resB005, exactB, step = 2), "Problem B: Absolute Errors (h = 0.05)")
+tbl(max_error_df(list(resB02, resB01, resB005), exactB, c(0.2, 0.1, 0.05)),
+    "Problem B: Maximum Global Error Summary")
+```
+
+C
+
+```{r}
+tf_C    <- 4 * pi
+resC02  <- run_all(fC, fC_dt, fC_dy, exactC, 0, 0.5, tf_C, 0.20)
+resC01  <- run_all(fC, fC_dt, fC_dy, exactC, 0, 0.5, tf_C, 0.10)
+resC005 <- run_all(fC, fC_dt, fC_dy, exactC, 0, 0.5, tf_C, 0.05)
+
+plot_solutions(resC01, exactC, tf_C, "Problem C: Solutions", 0.1)
+plot_errors(resC01, exactC, "Problem C: Absolute Errors", 0.1)
+tbl(error_df(resC02, exactC, step = 2), "Problem C: Absolute Errors (h = 0.2)")
+tbl(error_df(resC01, exactC, step = 2), "Problem C: Absolute Errors (h = 0.1)")
+tbl(error_df(resC005, exactC, step = 4), "Problem C: Absolute Errors (h = 0.05)")
+tbl(max_error_df(list(resC02, resC01, resC005), exactC, c(0.2, 0.1, 0.05)),
+    "Problem C: Maximum Global Error Summary")
+```
